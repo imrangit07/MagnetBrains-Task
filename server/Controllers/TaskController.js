@@ -1,0 +1,154 @@
+const Auth = require("../middleware/Auth");
+const { CatchAsyncErrors } = require("../middleware/CatchAsuncErrors");
+const TaskModel = require("../models/TaskModel");
+
+// For /api/tasks/create-task
+const CreateTask = CatchAsyncErrors(async (req, res) => {
+  const { title, description, dueDate, priority, assignedTo } = req.body;
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "You are not allowed to access this route", code: 403 });
+
+  if (!title || !description || !dueDate || !priority ) {
+    return res.status(400).json({
+      message: "All fields are required"
+    })
+  }
+
+  const task = new TaskModel({
+    title,
+    description,
+    dueDate,
+    priority,
+    createdBy: req.user._id,
+    assignedTo: assignedTo && assignedTo !== "" ? assignedTo : null,
+  })
+  await task.save();
+  res.status(201).json({ message: "Task created successfully", task })
+});
+
+// For /api/tasks/all-tasks
+const GetTasks = CatchAsyncErrors(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 10;
+  const skip = (page - 1) * limit;
+
+  const tasks = await TaskModel.find()
+    .sort({ dueDate: 1 })
+    .skip(skip)
+    .limit(limit)
+    .populate("assignedTo", 'name email role')
+    .populate("createdBy", 'name');
+
+  const total = await TaskModel.countDocuments();
+  res.json({ tasks, total, page, pages: Math.ceil(total / limit) })
+})
+
+//Edit Task
+const EditTask = CatchAsyncErrors(async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "You are not allowed to access this route", code: 403 });
+
+  const { title, description, dueDate, priority, status } = req.body;
+  const { id } = req.query;
+
+  if (!title || !description || !dueDate || !priority || !status) {
+    return res.status(400).json({
+      message: "All fields are required"
+    })
+  }
+
+  const updatedTask = await TaskModel.findByIdAndUpdate({ _id: id }, {
+    title,
+    description,
+    dueDate,
+    priority,
+    status
+  },
+    {
+      new: true,
+      runValidators: true
+    });
+
+
+  if (!updatedTask) {
+    return res.status(404).json({
+      message: "Task not found"
+    })
+  }
+
+  res.status(200).json({ massage: "Task Updated Successfully" })
+
+})
+
+//Delete Task
+
+const DeleteTask = CatchAsyncErrors(async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ message: "You are not allowed to access this route", code: 403 });
+
+  const { id } = req.query;
+  const deletedTask = await TaskModel.findOneAndDelete({ _id: id });
+
+  if (!deletedTask) {
+    return res.status(404).json("Task not found")
+  }
+  res.status(200).json({ message: "Task deleted successfully" })
+})
+
+const assignTaskToUser = CatchAsyncErrors(async (req, res) => {
+  const { id } = req.query;
+  const { userId } = req.body;
+  console.log(req.body);
+  console.log(userId);
+
+  console.log(id);
+
+  const assignedTask = await TaskModel.findByIdAndUpdate({ _id: id }, {
+    assignedTo: userId
+  })
+
+  if (!assignedTask) {
+    return res.status(404).json({ message: "Task not found" })
+  }
+
+  res.status(200).json({ message: "Task assigned to user successfully" })
+})
+
+
+// single user Tasks
+const UserTasks = CatchAsyncErrors(async (req, res) => {
+
+  const userTask = await TaskModel.find({ assignedTo: req.user._id })
+  .populate("assignedTo", 'name')
+  .populate("createdBy", 'name');
+
+  if (!userTask) {
+    return res.status(404).json({ message: "Task not found" })
+  }
+
+  res.status(200).json({ message: "Task assigned to user successfully", tasks: userTask })
+})
+
+// Change Status
+const ChangeTaskStatus = CatchAsyncErrors(async (req, res) => {
+  const { id } = req.query;
+  const { status } = req.body
+  const changeStatus = await TaskModel.findByIdAndUpdate({ _id: id }, {
+    status:status,
+    completedAt:status === 'completed' ? Date.now() : null
+  })
+
+  if (!changeStatus) {
+    return res.status(404).json({ message: "Task not found" })
+  }
+
+  res.status(200).json({ message: "Changed Task Status Successfully" })
+})
+
+
+module.exports = {
+  CreateTask,
+  GetTasks,
+  EditTask,
+  DeleteTask,
+  assignTaskToUser,
+  UserTasks,
+  ChangeTaskStatus
+};
